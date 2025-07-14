@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>目录: {{ current_dir }}</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        ul { list-style-type: none; padding: 0; }
+        li { margin: 0.5em 0; }
+        a { text-decoration: none; color: #007bff; }
+        a:hover { text-decoration: underline; }
+        .dir::before { content: "📁 "; }
+        .file::before { content: "📄 "; }
+        .breadcrumb a { color: #0056b3; }
+        .breadcrumb span { margin: 0 0.5em; }
+    </style>
+</head>
+<body>
+    <h1>目录: {{ current_dir }}</h1>
+    <p class="breadcrumb">
+        {% for crumb in breadcrumbs %}
+            <a href="{{ url_for('serve_db_path', path=crumb.path) }}">{{ crumb.name }}</a>
+            {% if not loop.last %}<span>/</span>{% endif %}
+        {% endfor %}
+    </p>
+    <ul>
+        {% if parent_dir is not none %}
+        <li><a href="{{ url_for('serve_db_path', path=parent_dir) }}">⬆️.. (返回上级目录)</a></li>
+        {% endif %}
+        {% for d in dirs %}
+        <li><a class="dir" href="{{ url_for('serve_db_path', path=current_dir + '/' + d if current_dir else d) }}">{{ d }}</a></li>
+        {% endfor %}
+        {% for f in files %}
+        <li><a class="file" href="{{ url_for('serve_db_path', path=current_dir + '/' + f if current_dir else f) }}">{{ f }}</a></li>
+        {% endfor %}
+    </ul>
+</body>
+</html>

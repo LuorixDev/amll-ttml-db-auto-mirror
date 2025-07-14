@@ -1,0 +1,14 @@
+# Ignore the cloned repository
+/db_mirror/
+
+# Ignore database file
+*.db
+
+# Ignore proxy status file
+*.json
+
+# Ignore log files
+*.log
+
+# Ignore Python cache
+__pycache__/
