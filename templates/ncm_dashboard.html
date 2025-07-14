@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>NCM Dashboard</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.6; margin: 0; background-color: #f4f4f4; color: #333; }
+        .container { max-width: 1200px; margin: 2em auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2 { color: #0056b3; }
+        a { color: #007bff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .tabs { display: flex; border-bottom: 2px solid #dee2e6; }
+        .tab-button { background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 10px 20px; cursor: pointer; transition: background-color 0.3s; border-bottom: none; border-radius: 5px 5px 0 0; }
+        .tab-button.active { background-color: #007bff; color: white; border-color: #007bff; }
+        .tab-content { display: none; padding-top: 20px; }
+        .tab-content.active { display: block; }
+        .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .card h3 { margin-top: 0; color: #0056b3; }
+        table { width: 100%; border-collapse: collapse; margin-top: 1em; }
+        th, td { padding: 8px; border: 1px solid #ddd; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .loading { color: #888; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>NCM Dashboard</h1>
+        <p><a href="{{ url_for('index') }}">返回首页</a></p>
+
+        <div class="tabs">
+            <button class="tab-button active" onclick="openTab('today')">今日</button>
+            <button class="tab-button" onclick="openTab('monthly')">月度</button>
+            <button class="tab-button" onclick="openTab('yearly')">年度</button>
+            <button class="tab-button" onclick="openTab('total')">总计</button>
+        </div>
+
+        <div id="today" class="tab-content active">
+            <div class="grid-container">
+                <div class="card">
+                    <h3>数据统计</h3>
+                    <table>
+                        <tr><td>最近获取</td><td id="today-acquired"><span class="loading">加载中...</span></td></tr>
+                        <tr><td>最新未有歌词歌曲</td><td id="today-no-lyrics"><span class="loading">加载中...</span></td></tr>
+                    </table>
+                </div>
+                <div class="card">
+                    <h3>热度歌手</h3>
+                    <table id="today-hot-artists">
+                        <thead><tr><th>歌手</th><th>次数</th></tr></thead>
+                        <tbody><tr><td colspan="2"><span class="loading">加载中...</span></td></tr></tbody>
+                    </table>
+                </div>
+                <div class="card">
+                    <h3>热度歌曲</h3>
+                    <table id="today-hot-songs">
+                        <thead><tr><th>歌曲</th><th>次数</th></tr></thead>
+                        <tbody><tr><td colspan="2"><span class="loading">加载中...</span></td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div id="monthly" class="tab-content">
+            <!-- Monthly content will be loaded here -->
+        </div>
+        <div id="yearly" class="tab-content">
+            <!-- Yearly content will be loaded here -->
+        </div>
+        <div id="total" class="tab-content">
+            <!-- Total content will be loaded here -->
+        </div>
+    </div>
+
+    <script>
+        function openTab(tabName) {
+            const contents = document.querySelectorAll('.tab-content');
+            contents.forEach(content => content.classList.remove('active'));
+            document.getElementById(tabName).classList.add('active');
+
+            const buttons = document.querySelectorAll('.tab-button');
+            buttons.forEach(button => button.classList.remove('active'));
+            document.querySelector(`.tab-button[onclick="openTab('${tabName}')"]`).classList.add('active');
+            
+            if (!document.getElementById(tabName).innerHTML.includes('grid-container')) {
+                loadTabData(tabName);
+            }
+        }
+
+        function createContent(period) {
+            return `
+                <div class="grid-container">
+                    <div class="card">
+                        <h3>数据统计</h3>
+                        <table>
+                            <tr><td>最近获取</td><td id="${period}-acquired"><span class="loading">加载中...</span></td></tr>
+                            <tr><td>最新未有歌词歌曲</td><td id="${period}-no-lyrics"><span class="loading">加载中...</span></td></tr>
+                        </table>
+                    </div>
+                    <div class="card">
+                        <h3>热度歌手</h3>
+                        <table id="${period}-hot-artists">
+                            <thead><tr><th>歌手</th><th>次数</th></tr></thead>
+                            <tbody><tr><td colspan="2"><span class="loading">加载中...</span></td></tr></tbody>
+                        </table>
+                    </div>
+                    <div class="card">
+                        <h3>热度歌曲</h3>
+                        <table id="${period}-hot-songs">
+                            <thead><tr><th>歌曲</th><th>次数</th></tr></thead>
+                            <tbody><tr><td colspan="2"><span class="loading">加载中...</span></td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        function loadTabData(period) {
+            const tabContent = document.getElementById(period);
+            tabContent.innerHTML = createContent(period);
+
+            fetch(`/api/ncm_dashboard?period=${period}`)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById(`${period}-acquired`).textContent = data.stats.acquired;
+                    document.getElementById(`${period}-no-lyrics`).textContent = data.stats.no_lyrics;
+
+                    const artistsTable = document.getElementById(`${period}-hot-artists`).getElementsByTagName('tbody')[0];
+                    artistsTable.innerHTML = '';
+                    data.hot_artists.forEach(artist => {
+                        let row = artistsTable.insertRow();
+                        row.insertCell(0).textContent = artist.artists;
+                        row.insertCell(1).textContent = artist.count;
+                    });
+
+                    const songsTable = document.getElementById(`${period}-hot-songs`).getElementsByTagName('tbody')[0];
+                    songsTable.innerHTML = '';
+                    data.hot_songs.forEach(song => {
+                        let row = songsTable.insertRow();
+                        row.insertCell(0).textContent = song.song_name;
+                        row.insertCell(1).textContent = song.count;
+                    });
+                })
+                .catch(error => {
+                    console.error(`Error fetching ${period} data:`, error);
+                    tabContent.innerHTML = '<p style="color: red;">无法加载数据，请稍后重试。</p>';
+                });
+        }
+
+        // Initial load for today tab
+        document.addEventListener('DOMContentLoaded', () => loadTabData('today'));
+    </script>
+</body>
+</html>

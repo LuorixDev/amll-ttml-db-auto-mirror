@@ -4,7 +4,7 @@ import os
 import re
 import logging
 from datetime import datetime
-from flask import Flask, send_from_directory, render_template, url_for, after_this_request, jsonify
+from flask import Flask, send_from_directory, render_template, url_for, after_this_request, jsonify, request
 from urllib.parse import unquote
 
 # --- 导入自定义模块 ---
@@ -12,7 +12,7 @@ from config import REPO_DIR, LOG_FILE
 from database import (record_ncm_access, record_not_found, get_db_stats,
                       get_ncm_stats, get_song_info, update_song_info,
                       add_ncm_no_lyrics_entry, get_ncm_no_lyrics_stats,
-                      remove_ncm_no_lyrics_entry)
+                      remove_ncm_no_lyrics_entry, get_ncm_dashboard_stats)
 from proxy_manager import get_proxy_status
 from git_manager import get_last_update_status
 from utils import get_dir_size_mb
@@ -190,3 +190,15 @@ def ncm_no_lyrics_view():
     """显示所有被记录的、有歌曲但无歌词的NCM条目"""
     stats = get_ncm_no_lyrics_stats()
     return render_template('ncm_no_lyrics_view.html', stats=stats)
+
+@app.route('/ncm_dashboard')
+def ncm_dashboard():
+    """提供NCM仪表盘页面"""
+    return render_template('ncm_dashboard.html')
+
+@app.route('/api/ncm_dashboard')
+def api_ncm_dashboard():
+    """为NCM仪表盘提供数据"""
+    period = request.args.get('period', 'today')
+    stats = get_ncm_dashboard_stats(period)
+    return jsonify(stats)

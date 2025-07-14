@@ -179,3 +179,60 @@ def remove_ncm_no_lyrics_entry(song_id):
         if c.rowcount > 0:
             logger.info(f"歌曲 {song_id} 已找到歌词，从'无歌词'列表中移除。")
         conn.commit()
+
+def get_ncm_dashboard_stats(period='today'):
+    """获取NCM仪表盘的统计数据"""
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        # 根据period确定时间范围
+        if period == 'today':
+            time_filter = "WHERE date(accessed_at) = date('now')"
+            no_lyrics_time_filter = "WHERE date(first_seen) = date('now')"
+        elif period == 'monthly':
+            time_filter = "WHERE strftime('%Y-%m', accessed_at) = strftime('%Y-%m', 'now')"
+            no_lyrics_time_filter = "WHERE strftime('%Y-%m', first_seen) = strftime('%Y-%m', 'now')"
+        elif period == 'yearly':
+            time_filter = "WHERE strftime('%Y', accessed_at) = strftime('%Y', 'now')"
+            no_lyrics_time_filter = "WHERE strftime('%Y', first_seen) = strftime('%Y', 'now')"
+        else: # total
+            time_filter = ""
+            no_lyrics_time_filter = ""
+
+        # 查询统计数据
+        c.execute(f"SELECT COUNT(DISTINCT song_id) FROM ncm_access_log {time_filter}")
+        acquired = c.fetchone()[0]
+        
+        c.execute(f"SELECT COUNT(*) FROM ncm_no_lyrics {no_lyrics_time_filter}")
+        no_lyrics = c.fetchone()[0]
+
+        # 查询热度歌曲
+        c.execute(f'''
+            SELECT s.song_name, COUNT(l.song_id) as count
+            FROM ncm_access_log l
+            JOIN ncm_song_info s ON l.song_id = s.song_id
+            {time_filter}
+            GROUP BY l.song_id, s.song_name
+            ORDER BY count DESC
+            LIMIT 10
+        ''')
+        hot_songs = [dict(row) for row in c.fetchall()]
+
+        # 查询热度歌手
+        c.execute(f'''
+            SELECT s.artists, COUNT(l.song_id) as count
+            FROM ncm_access_log l
+            JOIN ncm_song_info s ON l.song_id = s.song_id
+            {time_filter}
+            GROUP BY s.artists
+            ORDER BY count DESC
+            LIMIT 10
+        ''')
+        hot_artists = [dict(row) for row in c.fetchall()]
+        
+    return {
+        "stats": {"acquired": acquired, "no_lyrics": no_lyrics},
+        "hot_songs": hot_songs,
+        "hot_artists": hot_artists
+    }
