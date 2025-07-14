@@ -2,8 +2,10 @@
 
 import os
 import re
+import json
 import logging
-from datetime import datetime
+import requests
+from datetime import datetime, timedelta
 from flask import Flask, send_from_directory, render_template, url_for, after_this_request, jsonify, request
 from urllib.parse import unquote
 
@@ -12,7 +14,8 @@ from config import REPO_DIR, LOG_FILE
 from database import (record_ncm_access, record_not_found, get_db_stats,
                       get_ncm_stats, get_song_info, update_song_info,
                       add_ncm_no_lyrics_entry, get_ncm_no_lyrics_stats,
-                      remove_ncm_no_lyrics_entry, get_ncm_dashboard_stats)
+                      remove_ncm_no_lyrics_entry, get_ncm_dashboard_stats,
+                      get_contributors_info, update_contributors_info)
 from proxy_manager import get_proxy_status
 from git_manager import get_last_update_status
 from utils import get_dir_size_mb
@@ -202,3 +205,132 @@ def api_ncm_dashboard():
     period = request.args.get('period', 'today')
     stats = get_ncm_dashboard_stats(period)
     return jsonify(stats)
+
+@app.route('/contributors')
+def contributors_view():
+    """提供贡献者页面的框架"""
+    return render_template('contributors.html')
+
+@app.route('/api/contributors')
+def api_contributors():
+    """
+    以JSON格式提供贡献者数据，优先从数据库缓存读取，
+    仅当数据不存在或陈旧时才从API获取，并处理GitHub API限速。
+    """
+    contributors_file = os.path.join(REPO_DIR, 'metadata', 'contributors.jsonl')
+    if not os.path.exists(contributors_file):
+        logger.error(f"贡献者文件未找到: {contributors_file}")
+        return jsonify({'error': '贡献者数据文件未找到。'}), 404
+
+    # 1. 从.jsonl文件读取所有贡献者基本信息
+    all_contributors = {}
+    with open(contributors_file, 'r', encoding='utf-8') as f:
+        for line in f:
+            try:
+                data = json.loads(line)
+                github_id = str(data.get('githubId'))
+                if github_id:
+                    all_contributors[github_id] = {'count': data.get('count', 0)}
+            except json.JSONDecodeError:
+                logger.warning(f"无法解析行: {line.strip()}")
+    
+    github_ids = list(all_contributors.keys())
+    
+    # 2. 从数据库批量获取缓存信息
+    cached_info = get_contributors_info(github_ids)
+    
+    # 3. 确定哪些贡献者需要从API更新
+    ids_to_fetch = []
+    now = datetime.now()
+    for gid in github_ids:
+        info = cached_info.get(gid)
+        if not info:
+            ids_to_fetch.append(gid)
+        else:
+            last_updated = datetime.strptime(info['last_updated'], '%Y-%m-%d %H:%M:%S.%f')
+            if now - last_updated > timedelta(days=1): # 缓存有效期为1天
+                ids_to_fetch.append(gid)
+
+    # 4. 从API获取需要更新的数据
+    rate_limited = False
+    if ids_to_fetch:
+        logger.info(f"需要从API获取 {len(ids_to_fetch)} 位贡献者的信息。")
+        newly_fetched_info = {}
+        avatar_dir = os.path.join('static', 'avatars')
+        os.makedirs(avatar_dir, exist_ok=True)
+
+        for gid in ids_to_fetch:
+            if rate_limited:
+                break
+            
+            api_url = f"https://api.github.com/user/{gid}"
+            try:
+                response = requests.get(api_url, timeout=5)
+                if response.status_code in [403, 429]:
+                    logger.warning(f"GitHub API速率限制已触发。")
+                    rate_limited = True
+                    continue
+                
+                response.raise_for_status()
+                user_data = response.json()
+                avatar_url = user_data.get('avatar_url')
+
+                # 下载并保存头像
+                if avatar_url:
+                    try:
+                        avatar_response = requests.get(avatar_url, timeout=10)
+                        avatar_response.raise_for_status()
+                        avatar_path = os.path.join(avatar_dir, f"{gid}.png")
+                        with open(avatar_path, 'wb') as f:
+                            f.write(avatar_response.content)
+                    except requests.RequestException as e:
+                        logger.error(f"下载ID {gid} 的头像失败: {e}")
+
+                newly_fetched_info[gid] = {
+                    'login': user_data.get('login'),
+                    'name': user_data.get('name'),
+                    'avatar_url': avatar_url # 数据库中仍然存储原始URL
+                }
+            except requests.RequestException as e:
+                logger.error(f"无法从GitHub API获取ID {gid} 的信息: {e}")
+
+        # 5. 更新数据库缓存
+        if newly_fetched_info:
+            update_contributors_info(newly_fetched_info)
+            cached_info.update(newly_fetched_info)
+
+    # 6. 组合最终数据
+    final_contributors_data = []
+    for gid, data in all_contributors.items():
+        info = cached_info.get(gid)
+        local_avatar_path = os.path.join('static', 'avatars', f"{gid}.png")
+        
+        if info:
+            # 检查本地头像是否存在，决定使用本地路径还是远程URL
+            if os.path.exists(local_avatar_path):
+                avatar = url_for('static', filename=f'avatars/{gid}.png')
+            else:
+                avatar = info.get('avatar_url') # 回退到原始URL
+
+            final_contributors_data.append({
+                'login': info.get('login'),
+                'avatar_url': avatar,
+                'name': info.get('name'),
+                'count': data.get('count', 0)
+            })
+        else:
+            # 如果API限速或失败，则显示占位符
+            final_contributors_data.append({
+                'login': f"ID: {gid}",
+                'avatar_url': 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png',
+                'name': '（加载失败或被限速）',
+                'count': data.get('count', 0)
+            })
+
+    # 按贡献数量降序排序
+    final_contributors_data.sort(key=lambda x: x['count'], reverse=True)
+    
+    return jsonify({
+        'contributors': final_contributors_data,
+        'rate_limited': rate_limited
+    })

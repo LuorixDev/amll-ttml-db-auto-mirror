@@ -41,4 +41,4 @@ if __name__ == "__main__":
     logger.info("Starting Flask server, listening on http://0.0.0.0:5000")
     # 在生产环境中，建议使用Gunicorn或uWSGI等WSGI服务器代替Flask内置的开发服务器
     # 例如: gunicorn --workers 4 --bind 0.0.0.0:5000 main:app
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000)

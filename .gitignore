@@ -1,6 +1,8 @@
 # Ignore the cloned repository
 /db_mirror/
 
+/static/avatars/
+
 # Ignore database file
 *.db
 

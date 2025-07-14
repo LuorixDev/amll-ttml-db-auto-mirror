@@ -49,6 +49,16 @@ def init_db():
                 last_seen TIMESTAMP
             )
         ''')
+        # 创建贡献者信息表
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS contributors (
+                github_id TEXT PRIMARY KEY,
+                login TEXT,
+                name TEXT,
+                avatar_url TEXT,
+                last_updated TIMESTAMP
+            )
+        ''')
         conn.commit()
     logger.info("数据库初始化完成。")
 
@@ -179,6 +189,46 @@ def remove_ncm_no_lyrics_entry(song_id):
         if c.rowcount > 0:
             logger.info(f"歌曲 {song_id} 已找到歌词，从'无歌词'列表中移除。")
         conn.commit()
+
+def get_contributors_info(github_ids):
+    """根据github_id列表从数据库获取已知的贡献者详情"""
+    if not github_ids:
+        return {}
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        placeholders = ','.join('?' for _ in github_ids)
+        query = f"SELECT github_id, login, name, avatar_url, last_updated FROM contributors WHERE github_id IN ({placeholders})"
+        c.execute(query, github_ids)
+        return {str(row['github_id']): dict(row) for row in c.fetchall()}
+
+def update_contributors_info(contributors_map):
+    """批量更新或插入贡献者详情到数据库"""
+    if not contributors_map:
+        return
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        now = datetime.now()
+        data_to_insert = [
+            (
+                github_id,
+                details.get('login'),
+                details.get('name'),
+                details.get('avatar_url'),
+                now
+            ) for github_id, details in contributors_map.items()
+        ]
+        c.executemany('''
+            INSERT INTO contributors (github_id, login, name, avatar_url, last_updated)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(github_id) DO UPDATE SET
+                login = excluded.login,
+                name = excluded.name,
+                avatar_url = excluded.avatar_url,
+                last_updated = excluded.last_updated
+        ''', data_to_insert)
+        conn.commit()
+        logger.info(f"更新了 {len(data_to_insert)} 位贡献者的信息。")
 
 def get_ncm_dashboard_stats(period='today'):
     """获取NCM仪表盘的统计数据"""
