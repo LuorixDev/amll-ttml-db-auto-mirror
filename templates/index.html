@@ -1,105 +1,195 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
+  <head>
+    <meta charset="UTF-8" />
     <title>AMLL-TTML-DB Auto Mirror Status</title>
     <style>
-        body { font-family: sans-serif; line-height: 1.6; margin: 2em; background-color: #f4f4f4; color: #333; }
-        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-        h1, h2 { color: #0056b3; }
-        table { width: 100%; border-collapse: collapse; margin-top: 1em; }
-        th, td { padding: 8px; border: 1px solid #ddd; text-align: left; }
-        th { background-color: #f2f2f2; }
-        a { color: #007bff; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        .loading { color: #888; }
+      body {
+        font-family: sans-serif;
+        line-height: 1.6;
+        margin: 2em;
+        background-color: #f4f4f4;
+        color: #333;
+      }
+      .container {
+        max-width: 800px;
+        margin: auto;
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      }
+      h1,
+      h2 {
+        color: #0056b3;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1em;
+      }
+      th,
+      td {
+        padding: 8px;
+        border: 1px solid #ddd;
+        text-align: left;
+      }
+      th {
+        background-color: #f2f2f2;
+      }
+      a {
+        color: #007bff;
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .loading {
+        color: #888;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <div class="container">
-        <h1>AMLL-TTML-DB Auto Mirror Status</h1>
+        <h1>AMLL-TTML-DB 自动镜像站状态</h1>
+
+        <h2>公告</h2>
+        <p>欢迎使用由 洛元 (Luorix) 搭建的 AMLL TTML DB 镜像站。本站每10分钟自动从<a href="https://github.com/Steve-xmh/amll-ttml-db">官方歌词仓库</a>同步更新。</p>
+        <p>贡献者名单来源于官方仓库。若您希望成为贡献者，请向<a href="https://github.com/Steve-xmh/amll-ttml-db">官方仓库</a>提交歌词。</p>
         
-        <h2>导航</h2>
-        <ul>
-            <li><a href="{{ url_for('serve_db_path', path='') }}">浏览仓库根目录</a></li>
-            <li><a href="{{ url_for('log_view') }}">查看应用日志</a></li>
-            <li><a href="{{ url_for('ncm_view') }}">查看NCM访问统计</a></li>
-            <li><a href="{{ url_for('ncm_no_lyrics_view') }}">查看NCM无歌词歌曲</a></li>
-            <li><a href="{{ url_for('ncm_dashboard') }}">NCM仪表盘</a></li>
-            <li><a href="{{ url_for('contributors_view') }}">贡献者列表</a></li>
-        </ul>
+        <h3>使用方法</h3>
+        <ol>
+            <li>在 AMLL WS 插件的 歌词源 菜单中，找到“手动添加”。</li>
+            <li>在弹出的输入框中，依次填入以下信息：</li>
+            <ul>
+                <li><strong>歌词源名称:</strong> <code>Dimeta镜像站v1</code></li>
+                <li><strong>歌词来源模版链接:</strong> <code>https://aalm.mirror.dimeta.top/api/db/ncm-lyrics/[NCM_ID].ttml</code></li>
+            </ul>
+            <li>添加即可生效。</li>
+        </ol>
+        
+        <h3>提示：</h3>
+        <p>虽然只给了网易云的统计和使用方法，但是其他源都是可以使用的，根据你使用的平台改下就行。</p>
 
-        <h2>仓库状态</h2>
-        <table>
-            <tr><th>最后更新时间</th><td id="last-update-time"><span class="loading">加载中...</span></td></tr>
-            <tr><th>最后更新状态</th><td id="last-update-status"><span class="loading">加载中...</span></td></tr>
-            <tr><th>仓库目录大小</th><td id="dir-size"><span class="loading">加载中...</span></td></tr>
-        </table>
+        <h3>一些些小广告：</h3>
+        <p>欢迎参观<a href="https://blog.dimeta.top/">我的博客</a>，也欢迎交换友链</p>
+        <h3>支持我们:</h3>
+        <p>如果觉得本站对你有帮助，可以考虑<a href="https://afdian.tv/a/Shapaper" style="color: #ff6b81; font-weight: bold;">在爱发电支持我们 ❤️</a>，这将帮助我们持续维护和改进服务！</p>
 
-        <h2>数据库统计</h2>
-        <table>
-            <tr><th>NCM独立歌词访问数</th><td id="ncm-count"><span class="loading">加载中...</span></td></tr>
-            <tr><th>NCM无歌词歌曲数</th><td id="no-lyrics-count"><span class="loading">加载中...</span></td></tr>
-            <tr><th>404路径记录数</th><td id="not-found-count"><span class="loading">加载中...</span></td></tr>
-        </table>
+      <h2>导航</h2>
+      <ul>
+        <li>
+          <a href="{{ url_for('serve_db_path', path='') }}">浏览仓库根目录</a>
+        </li>
+        <li><a href="{{ url_for('log_view') }}">查看应用日志</a></li>
+        <li><a href="{{ url_for('ncm_view') }}">查看NCM访问统计</a></li>
+        <li>
+          <a href="{{ url_for('ncm_no_lyrics_view') }}">查看NCM无歌词歌曲</a>
+        </li>
+        <li><a href="{{ url_for('ncm_dashboard') }}">NCM仪表盘</a></li>
+        <li><a href="{{ url_for('contributors_view') }}">贡献者列表</a></li>
+      </ul>
 
-        <h2>代理状态</h2>
-        <table>
-            <thead>
-                <tr><th>代理地址</th><th>可用次数 (0表示不可用)</th></tr>
-            </thead>
-            <tbody id="proxy-status-body">
-                <tr><td colspan="2"><span class="loading">加载中...</span></td></tr>
-            </tbody>
-        </table>
+      <h2>仓库状态</h2>
+      <table>
+        <tr>
+          <th>最后更新时间</th>
+          <td id="last-update-time"><span class="loading">加载中...</span></td>
+        </tr>
+        <tr>
+          <th>最后更新状态</th>
+          <td id="last-update-status">
+            <span class="loading">加载中...</span>
+          </td>
+        </tr>
+        <tr>
+          <th>仓库目录大小</th>
+          <td id="dir-size"><span class="loading">加载中...</span></td>
+        </tr>
+      </table>
+
+      <h2>数据库统计</h2>
+      <table>
+        <tr>
+          <th>NCM独立歌词访问数</th>
+          <td id="ncm-count"><span class="loading">加载中...</span></td>
+        </tr>
+        <tr>
+          <th>NCM无歌词歌曲数</th>
+          <td id="no-lyrics-count"><span class="loading">加载中...</span></td>
+        </tr>
+        <tr>
+          <th>404路径记录数</th>
+          <td id="not-found-count"><span class="loading">加载中...</span></td>
+        </tr>
+      </table>
+
+      <h2>代理状态</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>代理地址</th>
+            <th>可用次数 (0表示不可用)</th>
+          </tr>
+        </thead>
+        <tbody id="proxy-status-body">
+          <tr>
+            <td colspan="2"><span class="loading">加载中...</span></td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            fetch('/api/status')
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('网络响应错误');
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    document.getElementById('last-update-time').textContent = data.last_update_time;
-                    document.getElementById('last-update-status').textContent = data.last_update_status;
-                    document.getElementById('dir-size').textContent = data.dir_size_mb;
-                    document.getElementById('ncm-count').textContent = data.ncm_count;
-                    document.getElementById('no-lyrics-count').textContent = data.no_lyrics_count;
-                    document.getElementById('not-found-count').textContent = data.not_found_count;
+      document.addEventListener("DOMContentLoaded", function () {
+        fetch("/api/status")
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error("网络响应错误");
+            }
+            return response.json();
+          })
+          .then((data) => {
+            document.getElementById("last-update-time").textContent =
+              data.last_update_time;
+            document.getElementById("last-update-status").textContent =
+              data.last_update_status;
+            document.getElementById("dir-size").textContent = data.dir_size_mb;
+            document.getElementById("ncm-count").textContent = data.ncm_count;
+            document.getElementById("no-lyrics-count").textContent =
+              data.no_lyrics_count;
+            document.getElementById("not-found-count").textContent =
+              data.not_found_count;
 
-                    const proxyTableBody = document.getElementById('proxy-status-body');
-                    proxyTableBody.innerHTML = ''; // 清空加载提示
+            const proxyTableBody = document.getElementById("proxy-status-body");
+            proxyTableBody.innerHTML = ""; // 清空加载提示
 
-                    if (data.proxy_status && data.proxy_status.length > 0) {
-                        data.proxy_status.forEach(proxy => {
-                            const row = proxyTableBody.insertRow();
-                            const cell1 = row.insertCell(0);
-                            const cell2 = row.insertCell(1);
-                            cell1.textContent = proxy[0]; // proxy address
-                            cell2.textContent = proxy[1]; // count
-                        });
-                    } else {
-                        const row = proxyTableBody.insertRow();
-                        const cell = row.insertCell(0);
-                        cell.colSpan = 2;
-                        cell.textContent = '没有可用的代理信息。';
-                    }
-                })
-                .catch(error => {
-                    console.error('获取状态信息失败:', error);
-                    // 在页面上显示错误信息
-                    const container = document.querySelector('.container');
-                    const errorDiv = document.createElement('div');
-                    errorDiv.style.color = 'red';
-                    errorDiv.style.marginTop = '1em';
-                    errorDiv.textContent = '无法加载状态数据，请稍后重试。';
-                    container.appendChild(errorDiv);
-                });
-        });
+            if (data.proxy_status && data.proxy_status.length > 0) {
+              data.proxy_status.forEach((proxy) => {
+                const row = proxyTableBody.insertRow();
+                const cell1 = row.insertCell(0);
+                const cell2 = row.insertCell(1);
+                cell1.textContent = proxy[0]; // proxy address
+                cell2.textContent = proxy[1]; // count
+              });
+            } else {
+              const row = proxyTableBody.insertRow();
+              const cell = row.insertCell(0);
+              cell.colSpan = 2;
+              cell.textContent = "没有可用的代理信息。";
+            }
+          })
+          .catch((error) => {
+            console.error("获取状态信息失败:", error);
+            // 在页面上显示错误信息
+            const container = document.querySelector(".container");
+            const errorDiv = document.createElement("div");
+            errorDiv.style.color = "red";
+            errorDiv.style.marginTop = "1em";
+            errorDiv.textContent = "无法加载状态数据，请稍后重试。";
+            container.appendChild(errorDiv);
+          });
+      });
     </script>
-</body>
+  </body>
 </html>
