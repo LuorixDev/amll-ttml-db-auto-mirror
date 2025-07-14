@@ -4,37 +4,137 @@
     <title>NCM访问统计</title>
     <style>
         body { font-family: sans-serif; margin: 2em; }
+        .controls { margin-bottom: 1em; }
+        .controls input { padding: 8px; font-size: 1em; width: 300px; }
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 8px; border: 1px solid #ddd; text-align: left; }
         th { background-color: #f2f2f2; }
+        th.sortable { cursor: pointer; user-select: none; }
+        th.sortable:hover { background-color: #e0e0e0; }
+        th.sort-asc::after { content: " ▲"; }
+        th.sort-desc::after { content: " ▼"; }
         a { color: #007bff; }
+        .hidden-row { display: none; }
     </style>
 </head>
 <body>
     <h1>NCM访问统计 (按访问次数降序, TOP 1000)</h1>
     <a href="{{ url_for('index') }}">返回主页</a>
     <hr>
-    <table>
-        <tr>
-            <th>Song ID</th>
-            <th>歌曲名称</th>
-            <th>歌手</th>
-            <th>专辑</th>
-            <th>总访问次数</th>
-            <th>最后访问时间</th>
-            <th>歌词链接</th>
-        </tr>
-        {% for row in stats %}
-        <tr>
-            <td>{{ row['song_id'] }}</td>
-            <td><a href="https://music.163.com/#/song?id={{ row['song_id'] }}" target="_blank">{{ row['song_name'] }}</a></td>
-            <td>{{ row['artists'] }}</td>
-            <td>{{ row['album'] }}</td>
-            <td>{{ row['access_count'] }}</td>
-            <td>{{ row['last_accessed'] }}</td>
-            <td><a href="{{ url_for('serve_db_path', path='ncm-lyrics/' + row['song_id']|string + '.ttml') }}">查看歌词</a></td>
-        </tr>
-        {% endfor %}
+    <div class="controls">
+        <input type="text" id="search-input" placeholder="搜索歌曲名称、歌手、专辑或ID...">
+    </div>
+    <table id="ncm-stats-table">
+        <thead>
+            <tr>
+                <th class="sortable" data-sort="song_id">Song ID</th>
+                <th class="sortable" data-sort="song_name">歌曲名称</th>
+                <th class="sortable" data-sort="artists">歌手</th>
+                <th class="sortable" data-sort="album">专辑</th>
+                <th class="sortable" data-sort="access_count">总访问次数</th>
+                <th class="sortable" data-sort="last_accessed">最后访问时间</th>
+                <th>歌词链接</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in stats %}
+            <tr>
+                <td>{{ row['song_id'] }}</td>
+                <td><a href="https://music.163.com/#/song?id={{ row['song_id'] }}" target="_blank">{{ row['song_name'] }}</a></td>
+                <td>{{ row['artists'] }}</td>
+                <td>{{ row['album'] }}</td>
+                <td>{{ row['access_count'] }}</td>
+                <td>{{ row['last_accessed'] }}</td>
+                <td><a href="{{ url_for('serve_db_path', path='ncm-lyrics/' + row['song_id']|string + '.ttml') }}">查看歌词</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
     </table>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchInput = document.getElementById('search-input');
+        const table = document.getElementById('ncm-stats-table');
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+
+        // 搜索功能
+        searchInput.addEventListener('keyup', function() {
+            const searchTerm = searchInput.value.toLowerCase();
+            rows.forEach(row => {
+                const textContent = row.textContent.toLowerCase();
+                if (textContent.includes(searchTerm)) {
+                    row.classList.remove('hidden-row');
+                } else {
+                    row.classList.add('hidden-row');
+                }
+            });
+        });
+
+        // 排序功能
+        const headers = table.querySelectorAll('th.sortable');
+        let currentSort = { column: 'access_count', order: 'desc' };
+
+        headers.forEach(header => {
+            header.addEventListener('click', function() {
+                const sortKey = this.dataset.sort;
+                let sortOrder = 'asc';
+                
+                if (currentSort.column === sortKey) {
+                    sortOrder = currentSort.order === 'asc' ? 'desc' : 'asc';
+                }
+
+                currentSort = { column: sortKey, order: sortOrder };
+                
+                // 更新表头样式
+                headers.forEach(h => h.classList.remove('sort-asc', 'sort-desc'));
+                this.classList.add(sortOrder === 'asc' ? 'sort-asc' : 'sort-desc');
+
+                sortRows(sortKey, sortOrder);
+            });
+        });
+
+        function sortRows(key, order) {
+            rows.sort(function(a, b) {
+                const cellA = a.querySelector(`td:nth-child(${getColumnIndex(key)})`).textContent.trim();
+                const cellB = b.querySelector(`td:nth-child(${getColumnIndex(key)})`).textContent.trim();
+                
+                let comparison = 0;
+
+                // 检查是否为日期列
+                if (key === 'last_accessed') {
+                    const dateA = new Date(cellA);
+                    const dateB = new Date(cellB);
+                    comparison = dateA - dateB;
+                } else {
+                    // 对于非日期列，保留原来的数字或字符串比较逻辑
+                    const numA = parseFloat(cellA);
+                    const numB = parseFloat(cellB);
+
+                    if (!isNaN(numA) && !isNaN(numB)) {
+                        comparison = numA - numB;
+                    } else {
+                        comparison = cellA.localeCompare(cellB, undefined, {numeric: true});
+                    }
+                }
+                
+                return order === 'asc' ? comparison : -comparison;
+            });
+
+            // 重新将排好序的行插入tbody
+            rows.forEach(row => tbody.appendChild(row));
+        }
+
+        function getColumnIndex(key) {
+            let index = -1;
+            headers.forEach((h, i) => {
+                if (h.dataset.sort === key) {
+                    index = i + 1;
+                }
+            });
+            return index;
+        }
+    });
+    </script>
 </body>
 </html>
