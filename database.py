@@ -34,9 +34,6 @@ def init_db():
         c.execute('''
             CREATE TABLE IF NOT EXISTS ncm_no_lyrics (
                 song_id TEXT PRIMARY KEY,
-                song_name TEXT,
-                artists TEXT,
-                album TEXT,
                 first_seen TIMESTAMP,
                 attempt_count INTEGER DEFAULT 0
             )
@@ -59,8 +56,30 @@ def init_db():
                 last_updated TIMESTAMP
             )
         ''')
+        # 创建流量日志表
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS traffic_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL,
+                ip_address TEXT,
+                user_agent TEXT,
+                response_size_bytes INTEGER,
+                timestamp TIMESTAMP NOT NULL
+            )
+        ''')
         conn.commit()
     logger.info("数据库初始化完成。")
+
+def record_traffic(path, ip_address, user_agent, response_size_bytes):
+    """记录每一次的HTTP请求"""
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        now = datetime.now()
+        c.execute(
+            "INSERT INTO traffic_log (path, ip_address, user_agent, response_size_bytes, timestamp) VALUES (?, ?, ?, ?, ?)",
+            (path, ip_address, user_agent, response_size_bytes, now)
+        )
+        conn.commit()
 
 def record_ncm_access(song_id):
     """记录每一次NCM歌曲的访问"""
@@ -133,6 +152,7 @@ def get_song_info(song_ids):
 def update_song_info(song_details_map):
     """批量更新或插入歌曲详情到数据库"""
     if not song_details_map:
+        logger.warning("没有提供歌曲详情进行更新。",song_details_map)
         return
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
@@ -140,12 +160,13 @@ def update_song_info(song_details_map):
         data_to_insert = [
             (
                 song_id,
-                details['name'],
+                details['song_name'],
                 details['artists'],
                 details['album'],
                 now
             ) for song_id, details in song_details_map.items()
         ]
+        #print(f"准备插入或更新 {(data_to_insert)} 歌曲的信息。")
         c.executemany('''
             INSERT INTO ncm_song_info (song_id, song_name, artists, album, last_updated) 
             VALUES (?, ?, ?, ?, ?)
@@ -165,20 +186,31 @@ def add_ncm_no_lyrics_entry(song_id, details):
         now = datetime.now()
         # 尝试插入，如果冲突（已存在），则更新尝试次数
         c.execute('''
-            INSERT INTO ncm_no_lyrics (song_id, song_name, artists, album, first_seen, attempt_count)
-            VALUES (?, ?, ?, ?, ?, 1)
+            INSERT INTO ncm_no_lyrics (song_id, first_seen, attempt_count)
+            VALUES (?, ?, 1)
             ON CONFLICT(song_id) DO UPDATE SET
             attempt_count = attempt_count + 1
-        ''', (song_id, details['name'], details['artists'], details['album'], now))
+        ''', (song_id, now))
         logger.info(f"记录一次对无歌词NCM歌曲的访问尝试: {song_id}")
         conn.commit()
 
 def get_ncm_no_lyrics_stats():
-    """获取所有NCM无歌词的歌曲记录，按尝试次数排序"""
+    """获取所有NCM无歌词的歌曲记录，并从ncm_song_info获取歌曲信息，按尝试次数排序"""
     with sqlite3.connect(DB_FILE) as conn:
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
-        c.execute("SELECT * FROM ncm_no_lyrics ORDER BY attempt_count DESC")
+        c.execute('''
+            SELECT
+                nl.song_id,
+                nl.attempt_count,
+                nl.first_seen,
+                si.song_name,
+                si.artists,
+                si.album
+            FROM ncm_no_lyrics nl
+            LEFT JOIN ncm_song_info si ON nl.song_id = si.song_id
+            ORDER BY nl.attempt_count DESC
+        ''')
         return c.fetchall()
 
 def remove_ncm_no_lyrics_entry(song_id):
@@ -285,4 +317,62 @@ def get_ncm_dashboard_stats(period='today'):
         "stats": {"acquired": acquired, "no_lyrics": no_lyrics},
         "hot_songs": hot_songs,
         "hot_artists": hot_artists
+    }
+
+def get_traffic_stats(period='today'):
+    """获取流量统计数据，确保在没有数据时也能返回有效结构"""
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        if period == 'today':
+            time_filter = "WHERE date(timestamp) = date('now')"
+        elif period == 'monthly':
+            time_filter = "WHERE strftime('%Y-%m', timestamp) = strftime('%Y-%m', 'now')"
+        elif period == 'yearly':
+            time_filter = "WHERE strftime('%Y', timestamp) = strftime('%Y', 'now')"
+        else: # total
+            time_filter = ""
+
+        try:
+            # 总请求数
+            c.execute(f"SELECT COUNT(*) FROM traffic_log {time_filter}")
+            total_requests = c.fetchone()[0] or 0
+
+            # 独立IP数
+            c.execute(f"SELECT COUNT(DISTINCT ip_address) FROM traffic_log {time_filter}")
+            unique_visitors = c.fetchone()[0] or 0
+            
+            # 总流量 (MB)
+            c.execute(f"SELECT SUM(response_size_bytes) FROM traffic_log {time_filter}")
+            total_traffic_bytes = c.fetchone()[0] or 0
+            total_traffic_mb = round(total_traffic_bytes / (1024 * 1024), 2)
+
+            # 热门页面
+            c.execute(f'''
+                SELECT path, COUNT(path) as count
+                FROM traffic_log
+                {time_filter}
+                GROUP BY path
+                ORDER BY count DESC
+                LIMIT 10
+            ''')
+            top_pages = [dict(row) for row in c.fetchall()]
+
+            # 热门User-Agent (已移除)
+            top_user_agents = []
+
+        except (sqlite3.OperationalError, TypeError):
+            # 如果表不存在或查询出错，返回默认值
+            logger.error("查询流量统计数据时出错，可能traffic_log表为空或不存在。")
+            total_requests = 0
+            unique_visitors = 0
+            total_traffic_mb = 0
+            top_pages = []
+
+    return {
+        "total_requests": total_requests,
+        "unique_visitors": unique_visitors,
+        "total_traffic_mb": total_traffic_mb,
+        "top_pages": top_pages
     }

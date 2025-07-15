@@ -27,6 +27,7 @@
     <table id="ncm-stats-table">
         <thead>
             <tr>
+                <th>操作</th>
                 <th class="sortable" data-sort="song_id">Song ID</th>
                 <th class="sortable" data-sort="song_name">歌曲名称</th>
                 <th class="sortable" data-sort="artists">歌手</th>
@@ -39,6 +40,7 @@
         <tbody>
             {% for row in stats %}
             <tr>
+                <td><button onclick="refreshSong('{{ row['song_id'] }}')">刷新</button></td>
                 <td>{{ row['song_id'] }}</td>
                 <td><a href="https://music.163.com/#/song?id={{ row['song_id'] }}" target="_blank">{{ row['song_name'] }}</a></td>
                 <td>{{ row['artists'] }}</td>
@@ -52,6 +54,29 @@
     </table>
 
     <script>
+    function refreshSong(songId) {
+        fetch(`/ncm/refresh/${songId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('刷新成功！');
+                // Optionally, you can reload the page or update the row data dynamically
+                location.reload();
+            } else {
+                alert('刷新失败: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('刷新时发生错误。');
+        });
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
         const searchInput = document.getElementById('search-input');
         const table = document.getElementById('ncm-stats-table');
@@ -127,9 +152,11 @@
 
         function getColumnIndex(key) {
             let index = -1;
-            headers.forEach((h, i) => {
+            const currentHeaders = table.querySelectorAll('th.sortable');
+            currentHeaders.forEach((h, i) => {
                 if (h.dataset.sort === key) {
-                    index = i + 1;
+                    // Need to account for the new "Action" column which is not sortable
+                    index = Array.from(table.querySelector('thead tr').children).indexOf(h) + 1;
                 }
             });
             return index;

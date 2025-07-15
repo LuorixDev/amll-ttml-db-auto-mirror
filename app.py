@@ -15,7 +15,8 @@ from database import (record_ncm_access, record_not_found, get_db_stats,
                       get_ncm_stats, get_song_info, update_song_info,
                       add_ncm_no_lyrics_entry, get_ncm_no_lyrics_stats,
                       remove_ncm_no_lyrics_entry, get_ncm_dashboard_stats,
-                      get_contributors_info, update_contributors_info)
+                      get_contributors_info, update_contributors_info,
+                      record_traffic, get_traffic_stats)
 from proxy_manager import get_proxy_status
 from git_manager import get_last_update_status
 from utils import get_dir_size_mb
@@ -24,6 +25,41 @@ from ncm_api import fetch_song_details_from_api
 # --- 初始化 ---
 logger = logging.getLogger(__name__)
 app = Flask(__name__)
+
+# --- 中间件 ---
+
+@app.after_request
+def after_request_func(response):
+    """在每次请求后记录流量和响应大小"""
+    # 定义不需要记录流量的、用于仪表盘数据接口的API端点
+    excluded_api_paths = [
+        '/api/status',
+        '/api/log',
+        '/api/ncm_dashboard',
+        '/api/traffic',
+        '/api/contributors'
+    ]
+
+    # 排除对静态文件、特定API端点、非成功响应或无内容响应的记录
+    # 这样可以确保对 /api/db/ 资源的访问被正确统计
+    if (request.path.startswith('/static/') or
+        request.path in excluded_api_paths or
+        not response.content_length):
+        return response
+    
+    # 获取真实IP，优先从 X-Forwarded-For 获取，并处理多IP地址的情况
+    x_forwarded_for = request.headers.get('X-Forwarded-For')
+    if x_forwarded_for:
+        ip_address = x_forwarded_for.split(',')[0].strip()
+    else:
+        ip_address = request.remote_addr
+        
+    user_agent = request.headers.get('User-Agent')
+    response_size = response.content_length
+
+    record_traffic(request.path, ip_address, user_agent, response_size)
+    
+    return response
 
 # --- Flask路由 ---
 
@@ -194,6 +230,26 @@ def ncm_no_lyrics_view():
     stats = get_ncm_no_lyrics_stats()
     return render_template('ncm_no_lyrics_view.html', stats=stats)
 
+@app.route('/ncm/refresh/<song_id>', methods=['POST'])
+def ncm_refresh_song(song_id):
+    """刷新指定歌曲的网易云信息"""
+    try:
+        logger.info(f"收到刷新歌曲 {song_id} 信息的请求。")
+        new_song_details = fetch_song_details_from_api([song_id])
+        
+        if song_id in new_song_details:
+            #print(f"刷新歌曲 {song_id} 的信息: {new_song_details[song_id]}")
+            update_song_info({song_id: new_song_details[song_id]})
+            logger.info(f"成功刷新并更新了歌曲 {song_id} 的信息。")
+            return jsonify({'success': True, 'message': '歌曲信息已刷新。'})
+        else:
+            logger.warning(f"无法从网易云API获取歌曲 {song_id} 的信息。")
+            return jsonify({'success': False, 'message': '无法获取歌曲信息，可能ID无效或API暂时不可用。'})
+            
+    except Exception as e:
+        logger.error(f"刷新歌曲 {song_id} 信息时发生错误: {e}")
+        return jsonify({'success': False, 'message': f'服务器内部错误: {e}'}), 500
+
 @app.route('/ncm_dashboard')
 def ncm_dashboard():
     """提供NCM仪表盘页面"""
@@ -204,6 +260,18 @@ def api_ncm_dashboard():
     """为NCM仪表盘提供数据"""
     period = request.args.get('period', 'today')
     stats = get_ncm_dashboard_stats(period)
+    return jsonify(stats)
+
+@app.route('/traffic')
+def traffic_view():
+    """提供流量统计页面的框架"""
+    return render_template('traffic_stats.html')
+
+@app.route('/api/traffic')
+def api_traffic():
+    """以JSON格式提供流量统计数据"""
+    period = request.args.get('period', 'today')
+    stats = get_traffic_stats(period)
     return jsonify(stats)
 
 @app.route('/contributors')
