@@ -24,7 +24,7 @@ def fetch_song_details_from_api(song_ids):
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         data = response.json()
-        print(f"API响应数据: {data}")  # 调试输出
+        #print(f"API响应数据: {data}")  # 调试输出
         if data.get('code') == 200 and 'songs' in data:
             for song in data['songs']:
                 song_id_str = str(song['id'])
@@ -42,7 +42,7 @@ def fetch_song_details_from_api(song_ids):
                     'artists': artists,
                     'album': album
                 }
-                print(f"处理歌曲ID {song_id_str} 的详情: {song_details_map[song_id_str]}")
+                #print(f"处理歌曲ID {song_id_str} 的详情: {song_details_map[song_id_str]}")
     except requests.RequestException as e:
         logger.error(f"请求歌曲详情API失败: {e}")
     except Exception as e:

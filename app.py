@@ -154,8 +154,11 @@ def serve_db_path(path):
         
         @after_this_request
         def add_header(response):
-            if response.status_code in [200, 304]:
+            if response.status_code == 200:
                 logger.info(f"成功提供文件: {decoded_path}, 状态码: {response.status_code}")
+                response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+                response.headers['Pragma'] = 'no-cache'
+                response.headers['Expires'] = '0'
             return response
             
         return send_from_directory(base_dir, decoded_path)

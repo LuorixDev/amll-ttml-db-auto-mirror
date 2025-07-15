@@ -9,7 +9,13 @@ REPO_DIR = "db_mirror"
 # 自动更新间隔（秒），这里是10分钟
 UPDATE_INTERVAL = 10 * 60
 # 数据库文件
-DB_FILE = "stats.db"
+DB_PATH = "data/db"
+DB_FILES = {
+    "ncm": f"{DB_PATH}/ncm.db",
+    "traffic": f"{DB_PATH}/traffic.db",
+    "system": f"{DB_PATH}/system.db",
+    "contributors": f"{DB_PATH}/contributors.db"
+}
 # 代理状态持久化文件
 PROXY_STATUS_FILE = "proxy_status.json"
 # 日志文件

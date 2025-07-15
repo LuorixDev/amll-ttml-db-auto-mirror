@@ -3,8 +3,9 @@
 
 /static/avatars/
 
-# Ignore database file
+# Ignore database files
 *.db
+/data/db/
 
 # Ignore proxy status file
 *.json
