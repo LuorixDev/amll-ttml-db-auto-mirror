@@ -5,8 +5,9 @@ import re
 import json
 import logging
 import requests
+import sqlite3
 from datetime import datetime, timedelta
-from flask import Flask, send_from_directory, render_template, url_for, after_this_request, jsonify, request
+from flask import Flask, send_from_directory, render_template, url_for, after_this_request, jsonify, request, session, redirect
 from urllib.parse import unquote
 
 # --- 导入自定义模块 ---
@@ -25,6 +26,7 @@ from ncm_api import fetch_song_details_from_api
 # --- 初始化 ---
 logger = logging.getLogger(__name__)
 app = Flask(__name__)
+app.secret_key = os.urandom(24)
 
 # --- 中间件 ---
 
@@ -405,3 +407,270 @@ def api_contributors():
         'contributors': final_contributors_data,
         'rate_limited': rate_limited
     })
+
+# --- 数据库管理 ---
+DB_DIR = os.path.join('data', 'db')
+PASSWORD_FILE = 'config_passpord.txt'
+
+def get_password():
+    try:
+        with open(PASSWORD_FILE, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return None
+
+@app.route('/db_admin', methods=['GET'])
+def db_admin():
+    if not session.get('logged_in'):
+        return render_template('db_admin.html', logged_in=False)
+
+    db_files = [f for f in os.listdir(DB_DIR) if f.endswith('.db')]
+    return render_template('db_admin.html', logged_in=True, db_files=db_files)
+
+@app.route('/db_admin/login', methods=['POST'])
+def db_admin_login():
+    password = request.form.get('password')
+    correct_password = get_password()
+    if correct_password and password == correct_password:
+        session['logged_in'] = True
+        return redirect(url_for('db_admin'))
+    else:
+        return render_template('db_admin.html', logged_in=False, error="密码错误")
+
+@app.route('/db_admin/logout')
+def db_admin_logout():
+    session.pop('logged_in', None)
+    return redirect(url_for('db_admin'))
+
+def get_db_connection(db_name):
+    """安全地获取数据库连接"""
+    db_path = os.path.join(DB_DIR, db_name)
+    # 安全检查，确保路径仍然在预期的目录下
+    if not os.path.abspath(db_path).startswith(os.path.abspath(DB_DIR)):
+        return None
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+    except sqlite3.Error as e:
+        logger.error(f"连接数据库 {db_name} 失败: {e}")
+        return None
+
+@app.route('/db_admin/view/<db_name>')
+def db_view(db_name):
+    if not session.get('logged_in'):
+        return redirect(url_for('db_admin'))
+
+    conn = get_db_connection(db_name)
+    if not conn:
+        return "数据库连接失败或无效的数据库文件。", 404
+
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    tables = [row[0] for row in cursor.fetchall()]
+    conn.close()
+
+    # 我们需要再次渲染db_admin.html，但这次要带上数据库和表的信息
+    db_files = [f for f in os.listdir(DB_DIR) if f.endswith('.db')]
+    return render_template('db_admin.html', 
+                           logged_in=True, 
+                           db_files=db_files, 
+                           selected_db=db_name, 
+                           tables=tables)
+
+@app.route('/db_admin/view/<db_name>/<table_name>', methods=['GET', 'POST'])
+def table_view(db_name, table_name):
+    if not session.get('logged_in'):
+        return redirect(url_for('db_admin'))
+
+    conn = get_db_connection(db_name)
+    if not conn:
+        return "数据库连接失败或无效的数据库文件。", 404
+
+    cursor = conn.cursor()
+    
+    # 安全检查：确保表名是合法的，防止SQL注入
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+    if cursor.fetchone() is None:
+        conn.close()
+        return "表不存在。", 404
+
+    # 获取表数据和列名
+    search_query = request.form.get('search_query', '')
+    search_column = request.form.get('search_column', '')
+
+    query = f"SELECT * FROM {table_name}"
+    params = []
+    
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    columns_info = cursor.fetchall()
+    columns = [col['name'] for col in columns_info]
+    pk_column = next((col['name'] for col in columns_info if col['pk']), None)
+
+    if request.method == 'POST' and search_query and search_column in columns:
+        query += f" WHERE {search_column} LIKE ?"
+        params.append(f"%{search_query}%")
+
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    
+    # 获取列名
+    columns = [description[0] for description in cursor.description]
+    
+    # 获取该数据库中所有表的列表
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    tables = [row[0] for row in cursor.fetchall()]
+    
+    conn.close()
+
+    # 获取所有数据库文件的列表
+    db_files = [f for f in os.listdir(DB_DIR) if f.endswith('.db')]
+
+    return render_template('db_admin.html',
+                           logged_in=True,
+                           db_files=db_files,
+                           selected_db=db_name,
+                           tables=tables,
+                           selected_table=table_name,
+                           columns=columns,
+                           rows=rows,
+                           pk_column=pk_column,
+                           search_query=search_query,
+                           search_column=search_column)
+
+@app.route('/db_admin/delete/<db_name>/<table_name>', methods=['POST'])
+def delete_row(db_name, table_name):
+    if not session.get('logged_in'):
+        return redirect(url_for('db_admin'))
+
+    conn = get_db_connection(db_name)
+    if not conn:
+        return "数据库连接失败或无效的数据库文件。", 404
+
+    cursor = conn.cursor()
+    
+    # 获取主键
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    columns_info = cursor.fetchall()
+    pk_column = None
+    for col in columns_info:
+        if col['pk']:
+            pk_column = col['name']
+            break
+    
+    if not pk_column:
+        conn.close()
+        return "无法找到主键，无法删除。", 400
+
+    row_id = request.form.get('row_id')
+    if not row_id:
+        conn.close()
+        return "未提供行ID。", 400
+
+    try:
+        query = f"DELETE FROM {table_name} WHERE {pk_column} = ?"
+        cursor.execute(query, (row_id,))
+        conn.commit()
+    except sqlite3.Error as e:
+        conn.rollback()
+        logger.error(f"删除行失败: {e}")
+        return f"删除失败: {e}", 500
+    finally:
+        conn.close()
+
+    return redirect(url_for('table_view', db_name=db_name, table_name=table_name))
+
+@app.route('/db_admin/update_cell', methods=['POST'])
+def update_cell():
+    if not session.get('logged_in'):
+        return jsonify({'success': False, 'error': 'Not logged in'}), 401
+
+    data = request.json
+    db_name = data.get('db_name')
+    table_name = data.get('table_name')
+    pk_val = data.get('pk')
+    column = data.get('column')
+    new_value = data.get('value')
+
+    if not all([db_name, table_name, pk_val, column, new_value is not None]):
+        return jsonify({'success': False, 'error': 'Missing data'}), 400
+
+    conn = get_db_connection(db_name)
+    if not conn:
+        return jsonify({'success': False, 'error': 'Database connection failed'}), 500
+
+    cursor = conn.cursor()
+
+    # Security check: Validate table_name from a list of allowed tables
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+    if cursor.fetchone() is None:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Table not found'}), 404
+
+    # Get column names and primary key
+    cursor.execute(f"PRAGMA table_info('{table_name}')")
+    columns_info = cursor.fetchall()
+    columns = [col['name'] for col in columns_info]
+    pk_column = next((col['name'] for col in columns_info if col['pk']), None)
+
+    if not pk_column:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Primary key not found'}), 400
+
+    # Security check: Validate column name
+    if column not in columns:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Column not found'}), 404
+
+    # Prevent updating the primary key itself
+    if column == pk_column:
+        conn.close()
+        return jsonify({'success': False, 'error': 'Cannot update primary key'}), 400
+
+    try:
+        # Using f-strings here is safe because table_name and column have been validated
+        query = f'UPDATE "{table_name}" SET "{column}" = ? WHERE "{pk_column}" = ?'
+        cursor.execute(query, (new_value, pk_val))
+        conn.commit()
+
+        return jsonify({'success': True})
+    except sqlite3.Error as e:
+        conn.rollback()
+        logger.error(f"更新单元格失败: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        conn.close()
+
+@app.route('/db_admin/add/<db_name>/<table_name>', methods=['POST'])
+def add_row(db_name, table_name):
+    if not session.get('logged_in'):
+        return redirect(url_for('db_admin'))
+
+    conn = get_db_connection(db_name)
+    if not conn:
+        return "数据库连接失败或无效的数据库文件。", 404
+
+    cursor = conn.cursor()
+    
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    columns_info = cursor.fetchall()
+    columns = [col['name'] for col in columns_info]
+    
+    form_data = request.form.to_dict()
+    values = []
+    for col in columns:
+        values.append(form_data.get(col))
+
+    try:
+        placeholders = ', '.join(['?'] * len(columns))
+        query = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})"
+        cursor.execute(query, values)
+        conn.commit()
+    except sqlite3.Error as e:
+        conn.rollback()
+        logger.error(f"添加行失败: {e}")
+        return f"添加失败: {e}", 500
+    finally:
+        conn.close()
+
+    return redirect(url_for('table_view', db_name=db_name, table_name=table_name))

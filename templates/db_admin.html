@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据库管理</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .login-form { text-align: center; margin-top: 5em; }
+        table { border-collapse: collapse; width: 100%; margin-top: 1em; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .form-group { margin-bottom: 1em; }
+        .form-group label { display: block; margin-bottom: .5em; }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 8px; box-sizing: border-box; }
+        .btn { padding: 10px 15px; background-color: #007bff; color: white; border: none; cursor: pointer; }
+        .btn-danger { background-color: #dc3545; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>数据库管理</h1>
+
+        {% if not logged_in %}
+        <div class="login-form">
+            <form action="{{ url_for('db_admin_login') }}" method="post">
+                <div class="form-group">
+                    <label for="password">请输入密码:</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                <button type="submit" class="btn">登录</button>
+            </form>
+            {% if error %}
+                <p style="color: red;">{{ error }}</p>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="header">
+            <span>登录成功!</span>
+            <a href="{{ url_for('db_admin_logout') }}" class="btn btn-danger">登出</a>
+        </div>
+
+        <h2>数据库列表</h2>
+        <ul>
+            {% for db_file in db_files %}
+            <li><a href="{{ url_for('db_view', db_name=db_file) }}">{{ db_file }}</a></li>
+            {% endfor %}
+        </ul>
+
+        <hr>
+
+        <div id="db-content">
+            {% if selected_db %}
+            <h3>数据库: {{ selected_db }}</h3>
+            <h4>表:</h4>
+            <ul>
+                {% for table in tables %}
+                <li><a href="{{ url_for('table_view', db_name=selected_db, table_name=table) }}">{{ table }}</a></li>
+                {% endfor %}
+            </ul>
+
+            {% if selected_table %}
+            <hr>
+            <h4>表: {{ selected_table }}</h4>
+            <form action="{{ url_for('table_view', db_name=selected_db, table_name=selected_table) }}" method="post" class="search-form">
+                <div class="form-group">
+                    <select name="search_column">
+                        {% for col in columns %}
+                        <option value="{{ col }}" {% if col == search_column %}selected{% endif %}>{{ col }}</option>
+                        {% endfor %}
+                    </select>
+                    <input type="text" name="search_query" placeholder="搜索..." value="{{ search_query }}">
+                    <button type="submit" class="btn">搜索</button>
+                </div>
+            </form>
+            <table>
+                <thead>
+                    <tr>
+                        {% for col in columns %}
+                        <th>{{ col }}</th>
+                        {% endfor %}
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr>
+                        {% for col in columns %}
+                        <td data-pk="{{ row[pk_column] }}" data-column="{{ col }}">{{ row[col] }}</td>
+                        {% endfor %}
+                        <td>
+                            <form action="{{ url_for('delete_row', db_name=selected_db, table_name=selected_table) }}" method="post" style="display:inline;">
+                                <input type="hidden" name="row_id" value="{{ row[columns[0]] }}">
+                                <button type="submit" class="btn btn-danger" onclick="return confirm('确定要删除这一行吗？');">删除</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <hr>
+            <h4>添加新行</h4>
+            <form action="{{ url_for('add_row', db_name=selected_db, table_name=selected_table) }}" method="post">
+                {% for col in columns %}
+                <div class="form-group">
+                    <label for="add-{{ col }}">{{ col }}</label>
+                    <input type="text" id="add-{{ col }}" name="{{ col }}">
+                </div>
+                {% endfor %}
+                <button type="submit" class="btn">添加</button>
+            </form>
+            {% endif %}
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const cells = document.querySelectorAll('td[data-pk]');
+            cells.forEach(cell => {
+                cell.addEventListener('dblclick', function() {
+                    if (this.querySelector('input')) {
+                        return;
+                    }
+
+                    const originalValue = this.innerText;
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.value = originalValue;
+                    this.innerHTML = '';
+                    this.appendChild(input);
+                    input.focus();
+
+                    input.addEventListener('blur', () => {
+                        updateCell(this, input.value, originalValue);
+                    });
+
+                    input.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') {
+                            updateCell(this, input.value, originalValue);
+                        } else if (e.key === 'Escape') {
+                            this.innerText = originalValue;
+                        }
+                    });
+                });
+            });
+
+            function updateCell(cell, newValue, originalValue) {
+                const pk = cell.dataset.pk;
+                const column = cell.dataset.column;
+                const dbName = '{{ selected_db }}';
+                const tableName = '{{ selected_table }}';
+
+                if (column === '{{ pk_column }}') {
+                    alert('主键不可修改。');
+                    cell.innerText = originalValue;
+                    return;
+                }
+                
+                if (newValue === originalValue) {
+                    cell.innerText = originalValue;
+                    return;
+                }
+
+                fetch('{{ url_for('update_cell') }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        db_name: dbName,
+                        table_name: tableName,
+                        pk: pk,
+                        column: column,
+                        value: newValue
+                    }),
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        cell.innerText = newValue;
+                    } else {
+                        alert('更新失败: ' + data.error);
+                        cell.innerText = originalValue;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('更新时发生错误。');
+                    cell.innerText = originalValue;
+                });
+            }
+        });
+    </script>
+</body>
+</html>
